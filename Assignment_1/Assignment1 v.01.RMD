@@ -1,0 +1,120 @@
+---
+title: "Assignment1 v.01"
+author: "Fabrizio Fiorini"
+date: "2/5/2021"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+The present document is divided in 3 parts:
+
+- Download and Import the Dataset
+- Descriptive Statistics
+- Transformation and Plot
+
+# Download and Import the Dataset
+
+## Download
+
+The dataset used for this assignment contains data of several hundreds wine reviews, with information about the country of production and the unit cost. The dataset contains both quantitative and qualitative variables.
+
+The dataset was downloaded from the website [kaggle](https://www.kaggle.com/zynicide/wine-reviews?select=winemag-data-130k-v2.csv).
+
+## Import
+
+In order to import the dataset in RStudio, I used the read.csv function. Then, I renamed it "DATA".
+
+```{r}
+#load the dataset
+read.csv("winemag-data_first150k.csv", header = T, sep = ",")
+
+#Name the dataset
+DATA <- read.csv("winemag-data_first150k.csv", header = T, sep = ",")
+```
+
+# Descriptive Statistics
+
+The first step to analyze this dataset is to show its structure and give some high-level information regarding it. Using the dim function we know that the dataset contains 150,930 observations and 11 variables. The ls function shows the column's headers. The head function allows to explore the first 6 rows of the dataset. Finally the str function gives more info for each variable.
+
+```{r}
+#more info about the dataset
+dim(DATA)
+ls(DATA)
+head(DATA)
+str(DATA)
+```
+
+Because I run some statistics, I wanted to verify whether and how many null values the dataset contains.
+
+```{r}
+#control of NA values
+any(is.na(DATA))
+sum(is.na(DATA))
+colSums(is.na(DATA))
+```
+
+From this control, I realized that the dataset contains 13,695 null values and that all of them are in the Price column.
+Knowing this, I decided to work with a version of the dataset that does not contain rows with null values. I called this smaller version of it "DATA.clean". This modified dataset contains 137,235 rows, 13,695 rows less than the original dataset.
+I could have used a function that allowed me to exclude only the rows that contain null values for the Price variable, but in this particular case all the null values are on the Price column, so it makes no difference.
+
+```{r}
+DATA.clean <- na.omit(DATA)
+any(is.na(DATA.clean))
+```
+
+The next step is to run some summary statistics of the main variables. For example I found that the average price for a wine bottle is 33.13 USD, the cheapest wine is priced at 4 USD, the most expensive bottle costs 2,300 USD, and the quantiles are respectively 4, 16, 24, 40, and 2,300 USD.
+
+```{r}
+#summary of price
+summary(DATA.clean$price)
+median(DATA.clean$price)
+quantile(DATA.clean$price)
+min(DATA.clean$price)
+max(DATA.clean$price)
+
+#summary of location
+summary(DATA.clean$country)
+
+#summary of review points
+summary(DATA.clean$points)
+
+#summary of variety
+summary(DATA.clean$variety)
+```
+
+Then, I focused on the Country variable and I created a table that shows the distribution of the reviewed wines between the countries.
+
+```{r}
+#focus on country variable
+table(DATA.clean$country)
+producers <- table(DATA.clean$country)
+
+table(DATA.clean$country)/nrow(DATA.clean)
+perc.producers <- table(DATA.clean$country)/nrow(DATA.clean)
+```
+
+# Transformation and Plot
+
+## Transformation
+
+I decided to transform the variable Points using log10 function.
+
+```{r}
+summary(DATA.clean$points)
+summary(log10(DATA.clean$points))
+```
+
+## Plot
+
+For the final step, I plotted a bar chart of the countries distribution to see which countries are the most important producers of wine among the sample contained in the dataset.
+
+```{r echo=FALSE}
+barplot(perc.producers, main = "Countries of production",
+        xlab = "Country", ylab = "%", las=1, horiz = T, col="red")
+```
