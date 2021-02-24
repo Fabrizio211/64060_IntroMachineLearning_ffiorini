@@ -1,0 +1,271 @@
+---
+title: "Assignment 2"
+author: "Fabrizio Fiorini"
+date: "2/24/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Module 4 - k-NN Classification Model
+
+This assignment consists on applying a k-NN model on a dataset of 5,000 customers of the Universal Bank. The object is to predict whether a new customer would accept a personal loan offer.
+
+The 14 variables that form the original dataset are the following:
+
+
+```{r}
+#install (if necessary) and load the required libraries
+library(caret)
+library(FNN)
+library(ggplot2)
+library("gmodels")
+library(ISLR)
+library(dplyr)
+library(fastDummies)
+library(dummies)
+```
+
+
+# Import and Exploration of the dataset
+
+We use the read.csv function to load the file that contains the dataframe of Universal Bank's customers. Then, we will run some exploratory analisys to get familiar with the dataset.
+
+```{r}
+#Importing the database
+customers <- read.csv("UniversalBank.csv")
+```
+
+```{r}
+#Exploring the data by previewing the first 6 rows and all the 14 variables.
+head(customers)
+
+#Looking at the structure of the dataset.
+str(customers)
+
+#Descriptive statistics
+summary(customers)
+
+#Verifing that Education variable is a categorical variable with more than 2 possible values.
+unique(customers$Education)
+```
+
+It is interesting to look at the data we have by plotting it.
+Below, two charts have been selected and reported due to the insight they provide.
+The first chart shows us that the majority of the Universal Bank's customers have an income below 100,000 and that they are evenly spread between 25 and 65 years old. Moreover, a customer earning more than 100,000 is a lot more likely to apply for a personal loan.
+The second is a bar chart that shows the distribution of Mortgage values, ignoring the ones under 100.
+
+```{r}
+ggplot(customers, aes(x=Income, y=Age, colour=customers$Personal.Loan)) + geom_point()
+UBm <- customers[customers$Mortgage>100,]
+ggplot(UBm, aes(x= Mortgage)) + geom_histogram()
+```
+
+
+# Transformation and Subsetting
+
+```{r}
+uniban_cat <- c("Education", "Personal.Loan") #categorical Variables
+uniban_num <- c("Age","Experience","Income","Family",
+                "CCAvg","Mortgage","Securities.Account","CD.Account",
+                "Online","CreditCard")        #numeric variables
+cat_UB<-customers[which(colnames(customers) %in% uniban_cat)]
+cat_UB<-data.frame(apply(cat_UB,2,as.character))
+#Converting datatype for catagorical columns to factor
+customers$Personal.Loan <- as.factor(customers$Personal.Loan)
+customers$Education <- as.factor(customers$Education)
+#Categorical variables to dummy variables conversion
+dummy_UB <- fastDummies::dummy_columns(cat_UB %>% select(-Personal.Loan)) #Dummy variable for "Education" and "Personal.Loan"
+dummy_UB <- dummy_UB %>% select(-Education) %>% mutate(Personal.Loan=customers$Personal.Loan)
+#Numerical Variables 
+numeric_UB <- customers[(which(colnames(customers) %in% uniban_num))]
+UB <- cbind(numeric_UB,dummy_UB)
+
+```
+
+Since the Education variable contains 3 unique values (1, 2 or 3), we have to transform it in dummy variable before normalizing data.
+
+
+## Partitioning of the data
+
+In order to teach the model how to classify new data, we need to split our dataset in 2 different sets, Training set (60%) and Validation set (40%).
+
+```{r}
+#Partitioning 60%-40%
+set.seed(123)
+sample1 = createDataPartition(UB$Income, p=0.60, list=FALSE)
+
+train_df = UB[sample1, ]
+valid_df = UB[-sample1, ]
+
+#Verifying if the two sets are well balanced
+summary(train_df$Income)
+summary(valid_df$Income)
+```
+
+
+# Normalization process
+
+A k-NN model is very sensible to different scales of the variables, so in order to reduce the bias of certain variables on the prediction, we need to normalize the data.
+For this process, we use preProcess and predict functions from the Caret package.
+After the transformation phase, we know that the variable to be predicted (Personal_Loan) is the 14th and last variable of our dataset. Therefore, it is excluded from the process and it will be used as labels.
+
+```{r}
+#copy the training and validation sets
+norm_train <- train_df
+norm_valid <- valid_df
+
+#normalizing data
+norm_values <- preProcess(train_df[ , -14], method=c("center", "scale"))
+
+#replacing original values with the normalized values
+norm_train <- predict(norm_values, train_df[ , -14])
+norm_valid <- predict(norm_values, valid_df[ , -14])
+```
+
+```{r}
+#verifying min, median and max values of the normalized data
+summary(norm_train)
+summary(norm_valid)
+dim(norm_train)
+dim(norm_valid)
+```
+
+Our Training and Validation sets are composed by, respectively, 3,002 rows and 13 columns, and 1,998 rows and 13 columns.
+
+# Tranining
+
+Data is now ready to be using in the creation of the k-NN model.
+First, we add a new customer of Universal Bank with the following characteristics: 
+
+```{r}
+new_cust <- data.frame(
+  "Age" = 40, 
+  "Experience" = 10, 
+  "Income" = 84, 
+  "Family" = 2, 
+  "CCAvg" = 2, 
+  "Mortgage" = 0,
+  "Securities.Account" = 0, 
+  "CD.Account" = 0, 
+  "Online" = 1, 
+  "CreditCard" = 1, 
+  "Education_1" = 0, 
+  "Education_2" = 1, 
+  "Education_3" = 0)
+head(new_cust)
+```
+
+Our predictors are given by the normalized training set.
+We use Personal Loan variable from the original training set.
+The k-NN model is run now with k=1.
+
+```{r}
+#k-NN Model with k=1
+set.seed(1234)
+predicted_labels1 <- knn(norm_train,
+                         new_cust,
+                         cl=train_df$Personal.Loan, k=1)
+predicted_labels1
+head(predicted_labels1)
+summary(predicted_labels1)
+```
+
+According to the 1-NN classifier, the new customer would not accept an offer for a Personal Loan.
+
+Now, we want to test the model for different values of k and find the one that perform best.
+
+```{r}
+#Testing for different values of k
+accuracy_df <- data.frame(k = seq(1,20,1), accuracy = rep(0,20))
+for(i in 1:20){
+  knn_pred <- knn(norm_train, norm_valid, cl = train_df$Personal.Loan, k=i)
+  accuracy_df[i,2] <- confusionMatrix(knn_pred, valid_df$Personal.Loan)$overall[1]
+}
+accuracy_df
+max(accuracy_df[c("accuracy")])
+
+#Running k-NN with k=3
+best_pred_labels <- knn(norm_train,
+                        norm_valid,
+                        cl= train_df$Personal.Loan, 
+                        k=3, prob = TRUE)
+```
+
+# Confusion Matrix using the best K
+
+The Confusion Matrix gives an outlook of how well the model performed, showing both the predicted labels and the validation labels. Moreover, we can look at the different measures of performance, such as Accuracy, Sensitivity, Precision, and Specificity.
+
+```{r}
+#Confusion Matrix
+CM_valid_labels <- valid_df$Personal.Loan
+CM_pred_labels <- best_pred_labels
+CrossTable(x=CM_valid_labels, y=CM_pred_labels,prop.chisq = TRUE)
+```
+
+The model wrongly predicted 79 outcomes.
+From the Matrix we see the model's performance:
+- Accuracy = 96.04%
+- Sensitivity = 63.54%
+- Precision = 89.84%
+- Specificity = 99.28%
+
+# Classify the new customer
+
+We run again our k-NN model to see what is the output when k=3, that as we found out, is our best k value.
+
+```{r}
+#Running knn with k=3
+predicted_labels2 <- knn(norm_train,
+                         new_cust,
+                         cl=train_df$Personal.Loan,
+                         k=3, prob = TRUE)
+```
+
+
+## Partitioning data in Training, Validation, and Test sets
+
+In this section, we split the dataset in 3 subset following the distribution 50%-30%-20%.
+
+```{r}
+# Partitioning data
+set.seed(1204)
+sample2 <- createDataPartition(UB$Personal.Loan, p=0.5, times = 1, list = FALSE)
+new_train_df <- UB[sample2, ]
+valid_test_df <- UB[-sample2, ]
+str(valid_test_df)
+sample3 <- createDataPartition(valid_test_df$Personal.Loan, p=0.6, times = 1, list= FALSE)
+test_df <- valid_test_df [-sample3, ]
+new_valid_df <- valid_test_df [sample3, ]
+train_normal2 <- new_train_df
+test_normal2 <- test_df
+val_normal2 <- new_valid_df
+```
+
+```{r}
+#Normalization of the 3 sets
+norm_values2 <- preProcess(new_train_df[,-14],method = c("center", "scale"))
+train_normal2 <- predict(norm_values2,new_train_df[,-14])
+test_normal2 <- predict(norm_values2,test_df[,-14])
+val_normal2 <- predict(norm_values2,new_valid_df[,-14])
+```
+
+```{r}
+#k-NN model using k=3
+predicted_labels3 <- knn(train_normal2,val_normal2,cl= new_train_df$Personal.Loan, k=3, prob = TRUE)
+
+#confusion matrix
+CM_valid_labels2 <- new_valid_df$Personal.Loan
+CM_pred_labels2 <- predicted_labels3
+CrossTable(x=CM_valid_labels2, y=CM_pred_labels2, prop.chisq = FALSE)
+```
+
+
+
+---------------
+
+
+
+
