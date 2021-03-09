@@ -1,0 +1,160 @@
+---
+title: "Assignment 3"
+author: "Fabrizio Fiorini"
+date: "3/7/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+In this document we are going to assess various probabilities related to the UniversalBank dataset, that contains variables for 5,000 customers.
+In doing so, we apply different methods and approach.
+
+## LOADING, EXPLORING AND PARTITIONING
+
+In this initial step, we load all the package we will need during the follow of the assignment.
+Moreover, we load the dataset and exlore its variables in order to get an insight of the data.
+
+```{r}
+#load packages
+library(e1071)
+library(caret)
+library(ISLR)
+```
+
+```{r}
+#load the dataframe and give a look at the data
+UB_df <- read.csv("UniversalBank.csv")
+str(UB_df)
+```
+
+Now, before partitioning the dataset, we make sure that all the variables we are interested in are categorical.
+
+```{r}
+#force data type into categorical values
+UB_df$Personal.Loan = as.factor(UB_df$Personal.Loan)
+UB_df$Online = as.factor(UB_df$Online)
+UB_df$CreditCard = as.factor(UB_df$CreditCard)
+```
+
+The last preliminary action is to partition the data into a training set and a validation set, containing respectively 60% and 40% of the total observations.
+
+```{r}
+#partitioning
+set.seed(1)
+train_index <- createDataPartition(UB_df$Personal.Loan,p=0.6,list=FALSE)
+train_set <- UB_df[train_index, ]
+valid_set <- UB_df[-train_index, ]
+```
+
+## QUESTION A
+
+Create a pivot table for the training data with Online as a column variable, CC as a row variable, and Loan as a secondary row variable. The values inside the table should convey the count. In R use functions melt() and cast(), or function table().
+
+```{r}
+str(train_set)
+table(train_set[ , c(10,13,14)])
+prop.table(table(train_set[ , c(10,13,14)]))
+prop.table(table(train_set[ , c(10,13,14)]), margin=1)
+```
+
+
+## QUESTION B
+
+Consider the task of classifying a customer who owns a bank credit card and is actively using online banking services. Looking at the pivot table, what is the probability that this customer will accept the loan offer?
+
+```{r}
+#name the pivot table
+PT1 <- table(train_set[ , c(10,13,14)])
+
+#the total number of customer for which CC=1 and O=1 is equal to
+sum_cc1_o1 <- PT1[2,2,2]+PT1[1,2,2]
+
+#P(L=1 | C=1,O=1) = 9.369%
+PT1[2,2,2]/sum_cc1_o1
+```
+
+As we can see from the R code, the probability that a customer accepts a Personal Loan offer from the bank, given that he is currently a credit card holder and an online user, is equal to 9.4%.
+
+
+## QUESTION C
+
+Create two separate pivot tables for the training data. One will have Loan (rows) as a function of Online (columns) and the other will have Loan (rows) as a function of CC.
+
+```{r}
+#PT2 is the pivot table with Personal Loan as function of Online
+PT2 <- table(train_set[,c(10,13)])
+PT2
+#PT3 is the pivot table with Personal Loan as function of CreditCard
+PT3 <- table(train_set[,c(10,14)])
+PT3
+```
+
+
+# QUESTION D
+
+Compute the following quantities:
+
+```{r}
+sum_pl1 <- PT2[2,2]+PT2[2,1]
+sum_pl1
+sum_pl0 <- PT2[1,2]+PT2[1,1]
+sum_pl0
+tot_obs <- sum_pl0+sum_pl1
+tot_obs
+
+#P(CC = 1 | Loan = 1) = 0.3160
+P1 <- PT3[2,2]/sum_pl1
+
+#P(Online = 1 | Loan = 1) = 0.5972
+P2 <- PT2[2,2]/sum_pl1
+
+#P(Loan = 1) = 0.0960
+P3 <- sum_pl1/tot_obs
+
+#P(CC = 1 | Loan = 0) = 0.2972
+P4 <- PT3[1,2]/sum_pl0
+
+#P(Online = 1 | Loan = 0) = 0.6007
+P5 <- PT2[1,2]/sum_pl0
+
+#P(Loan = 0) = 0.9040
+P6 <- sum_pl0/tot_obs
+```
+
+
+# QUESTION E
+
+Use the quantities computed above to compute the naive Bayes probability P(Loan = 1 | CC = 1, Online = 1).
+
+```{r}
+#calculate the naive Bayes probability
+P_nb <- (P1*P2*P3)/((P1*P2*P3)+(P4*P5*P6))
+```
+
+From this last line of code, we know that the probability using the naive Bayes approach is equal to 10.1%.
+
+
+# QUESTION F
+
+Compare this value with the one obtained from the pivot table in (B). Which is a more accurate estimate?
+
+While the application of the naive Bayes formula to assess the probability of accepting a Personal loan, given a certain status as a customer, gives us 10.1%, the values calculated in the QUESTION B part is 9.4%. We can underline that in the first case, the naive Bayes measurement is based on the assumption of having independent variables. Despite the fact that this scenario is unlikely in the real world, the approach did really well compared to the value in QUESTION B, that is an exact calculation of the probability. Thus, 9.4% is considered to be the most accurate estimate.
+
+
+# QUESTION G
+
+Which of the entries in this table are needed for computing P(Loan = 1 | CC = 1, Online = 1)? Run naive Bayes on the data. Examine the model output on training data, and find the entry that corresponds to P(Loan = 1 | CC = 1, Online = 1). Compare this to the number you obtained in (E).
+
+```{r}
+#running naiveBayes model
+train_nb<-train_set[,c(10,13,14)]
+UB_nb <- naiveBayes(Personal.Loan~.,data=train_nb)
+UB_nb
+```
+
+Leveraging the naiveBayes function in R we estimate the probability to be 9.6%, while the value obtain from the formula in QUESTION E was 10.1%.
