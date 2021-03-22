@@ -1,0 +1,118 @@
+---
+title: "Assignment 4"
+author: "Fabrizio Fiorini"
+date: "3/22/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## LOADING AND EXPLORATION
+
+# In this assignment I am going to apply a type of cluster analysis, n kmeans 
+# As a first step, let us load the required packages and the original dataset. It contains information about 21 pharmaceutical companies traded in 3 different stock exchanges.
+
+```{r}
+#loading the packages
+library(caret)
+library(factoextra)
+
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(cowplot)
+
+#exploring the dataset
+pharma <- read.csv("Pharmaceuticals.csv")
+head(pharma)
+str(pharma)
+summary(pharma)
+
+#giving names to rows as "Name" variable, then deleting the column
+row.names(pharma) <- pharma[,2]
+pharma <- pharma[,-2]
+```
+
+For the first part of the assignment I will focus on a subset of the original dataset that consists only of numerical variable.
+
+```{r}
+#excluding "Symbol" and the last 3 non-numerical variables
+pharma.short <- pharma[,-c(1,11:13)]
+```
+
+## NORMALIZATION AND CLUSTERING
+
+Here I measure the distance between each observation. Since by default the Euclidean distance metric is applied and it is sensitive to scale, data needs to be normalized first.
+From the chart we can see different intensity of color for different distances. As we would expect, the diagonal has a value equal to zero because it indicates the distance of an observation from itself.
+
+```{r}
+#normalizing data
+norm.pharma.short <- scale(pharma.short)
+
+#measuring and plotting distance
+distance <- get_dist(norm.pharma.short)
+fviz_dist(distance)
+```
+
+One of the most helpful tools that are used to choose the number of cluster for the k-means model when there are not any external considerations are the Elbow chart and the Silhouette Method. The former shows the decline in cluster heterogeneity when we add more clusters. The latter measures how similar an object is to its cluster compared to the other clusters.
+From the charts plotter, we can see that the elbow in the line is when k=2, while the Silhouette Method gives us k=5 as a result.
+I decided to run the k-means algorithm with 5 clusters.
+
+```{r}
+#plotting elbow chart and silhouette method
+Wss <- fviz_nbclust(norm.pharma.short, kmeans, method = "wss")
+Sil <- fviz_nbclust(norm.pharma.short, kmeans, method = "silhouette")
+plot_grid(Wss, Sil)
+
+#running k-means with k=5
+set.seed(123)
+km.pharma.best <- kmeans(norm.pharma.short, centers = 5, nstart = 50)
+km.pharma.best$centers
+km.pharma.best$size
+km.pharma.best$withinss
+fviz_cluster(km.pharma.best, data = norm.pharma.short)
+```
+
+From the result we can characterized the 5 clusters looking at the distance from the centers. For example, cluster n.4 has a high Market Capital, cluster n.2 has high Beta, cluster n.5 has a low Asset Turnover, and so on.
+We can also retrive the size of each cluster. Cluster n.1 is the most large, while cluster n.3 has only 2 firms.
+The within-cluster sum of squared distances tell us about the dispertion of data: cluster n.1 (21.9) is less homogeneous than cluster n.3 (2.8).
+By plotting the result of the algorithm we see the 5 group in which data has been clustered.
+
+```{r}
+
+```
+
+For the sake of a better interpretation of the cluster analysis, I decided to run again the model using only 3 clusters.
+In this way, it is easier to identify and manage the cluster in the analysis. From the second chart we see that cluster n.1 is formed by companies with a low Net Profit Margin and a high Price/Earnings ratio, while firms in cluster n.3 have low Asset Turnover and Return on Asset (ROA) but high Leverage and Estimated Revenue Growth.
+
+
+```{r}
+#running k-means algorithm with k=3
+set.seed(123)
+km.pharma <- kmeans(norm.pharma.short, centers = 3, nstart = 50)
+km.pharma$centers
+km.pharma$size
+km.pharma$withinss
+fviz_cluster(km.pharma, data = norm.pharma.short)
+
+#plotting data points grouped in clusters
+centroids <- data.frame(km.pharma$centers) %>% 
+  rowid_to_column() %>% 
+  gather('Columns', 'Centers', -1)
+ggplot(centroids, aes(x = Columns, y = Centers, color = as.factor(rowid))) + 
+  geom_line(aes(group = as.factor(rowid))) + geom_point()
+```
+
+## CATEGORICAL VARIABLES
+
+Let us now consider the last 3 categorical variables: Median Recommendation, Location and Stock Exchange.
+
+```{r}
+#partitioning data set
+pharma.cat <-  pharma %>% select(c(11,12,13)) %>% 
+    mutate(Cluster = km.pharma$cluster) %>% arrange(desc(Cluster))
+```
+
