@@ -1,0 +1,182 @@
+---
+title: "Assignment 5"
+author: "Fabrizio Fiorini"
+date: "4/25/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## HIERARCHICAL CLUSTERING ANALYSIS
+
+# Loading packages and data exploration
+
+The dataset we are going to use contains information on 77 different breakfast cereals. Some of the variables refer to nutritional information, store display, consumer rating, manufacturer, physical values like weight and number of cups.
+
+First, let us load the required libraries and import the "cereal.csv" dataset.
+
+```{r}
+#loading the libraries
+library(cluster)
+library(factoextra)
+library(caret)
+
+#importing the dataset
+cereals.df <- read.csv("Cereals.csv")
+```
+
+```{r}
+#exploring data
+head(cereals.df)
+str(cereals.df)
+summary(cereals.df)
+dim(cereals.df)
+```
+
+From the exploration activity done above, we know that the first 3 variables (name, mfr, type) are categorical, therefore we need to transform them in dummy variables or, in the case of the first column, use it as names for the rows. The other 13 variables are quantitative.
+There are also some missing values that we have to deal with and, if possible, remove on the following variables: carbo, sugar, potassium.
+Zooming out, we realized that the dataset is formed by 77 observations and 16 variables.
+
+```{r}
+#removing null values
+colMeans(is.na(cereals.df))
+cereals.df <- cereals.df[complete.cases(cereals.df),]
+colMeans(is.na(cereals.df))
+
+#exploring data with no null values
+head(cereals.df)
+summary(cereals.df)
+
+#assigning names to the rows
+cereals.short <- cereals.df
+row.names(cereals.short) <- cereals.short[,1]
+cereals.short <- cereals.short[,-c(1:3)]
+dim(cereals.short)
+```
+
+After we removed the null values, the dataset contains 74 observations. Therefore, we can say that we only lost 4% of the data.
+We also used the first variable, the one that tells us the cereals name, as row name. Then, we removed the 3 categorical variables from our dataset because our main focus here is on the nutritional components. Now the dataset has 74 observations and 13 variables.
+
+# Data normalization
+
+Since we are dealing with variables of very different nature that are expressed in different units, we have to normalized the data before applying any algorithm.
+
+```{r}
+#normalizing data
+cereals.norm <- scale(cereals.short)
+head(cereals.norm)
+summary(cereals.norm)
+```
+
+# Clustering Analysis
+
+Clustering is an unsupervised machine learning technique used to group data according to their similarities. There are 2 main apporach to clustering analysis: Divisive (top-bottom, or DIANA) and Agglomerative (bottom-up, AGNES).
+In this case, we are going to apply the agnes() function from the "cluster" package. This function has been preferred to the hclust() function because it gives us a numerical measure of the strength of the cluster structure, called agglomerative coefficient. This metric allow us to compare the goodness of the different linkage we used: single, complete, average and ward's method. 
+
+```{r}
+set.seed(123)
+
+#running AGNES for different linkages
+hc_s <- agnes(cereals.norm, method = "single")
+hc_c <- agnes(cereals.norm, method = "complete")
+hc_a <- agnes(cereals.norm, method = "average")
+hc_w <- agnes(cereals.norm, method = "ward")
+
+#comparing agglomerative coefficients
+print(hc_s$ac)
+print(hc_c$ac)
+print(hc_a$ac)
+print(hc_w$ac)
+```
+
+From the results we can conclude that the best method is the Ward's method, which gives a coefficient of 90.46%. Ward’s method aims to minimize the total within-cluster variance. It considers the “loss of information” that occurs when records are clustered together. When records are joined together and represented in clusters, information about an individual record is replaced by the information of the cluster. To measure loss of information, Ward’s method employs the “error sum of squares” (ESS) that measures the difference between individual records and a group mean.
+
+Usually, when dealing with hierchical clustering, a dendrogram is used to visually show the progressive grouping of data points and the distance between them.
+
+```{r}
+#plotting the dendrogram
+plot_w <- pltree(hc_w, cex = 0.6, hang = -1)
+```
+
+Let us apply now 2 techinques to figure out which values of k generate the best result.
+
+```{r}
+#finding the best value of clusters k
+fviz_nbclust(cereals.norm, FUN = hcut, method = "wss")
+fviz_nbclust(cereals.norm, FUN = hcut, method = "silhouette")
+```
+
+Looking at the Elbow chart it seems that a good level of clusters could be 5.
+From the Silhouette chart instead, we could reach the best result with 10 clusters. However we can see that with 5 clusters we could get a satisfying result. After this level, the model slighly increase its performance.
+
+By choosing a cutoff distance on the y-axis of the dendrogram we have a set of clusters. Visually, this means drawing a horizontal line: records with connections below the horizontal line belong to the same cluster. We can use the cutree() function and specify the number of cluster we want to obtain.
+Then, we plot the data points and the set of clusters.
+
+```{r}
+#creating set of clusters
+clusters5 <- cutree(hc_w, k=5)
+clusters5
+
+#plotting the clusters
+clplot5 <- fviz_cluster(list(data = cereals.norm, cluster = clusters5))
+```
+
+# Analysis of Structure and Stability of the clusters
+
+To check stability, we can divide the original dataset in 2 parts, partition A and partition B. Then, we see how similar the sets of clusters have been created for the 2 partitions and the original dataset.
+More precisely, we are going to allocate 50% of the data to partition A and the rest 50% to partition B, using "calories" variable.
+
+```{r}
+set.seed(123)
+
+#partitioning data
+datapart <- createDataPartition(cereals.norm[,"calories"], p=0.5, list=FALSE)
+partitionA <- cereals.norm[datapart, ]
+partitionB <- cereals.norm[-datapart, ]
+
+#checking the results of the partition
+summary(partitionA[,"calories"])
+summary(partitionB[,"calories"])
+```
+
+As we can see, the data is equally distributed between the 2 partitions.
+
+```{r}
+set.seed(123)
+
+#running AGNES to partition A and B
+hc_w_A <- agnes(partitionA, method = "ward")
+hc_w_B <- agnes(partitionB, method = "ward")
+
+#comparing agglomerative coefficient and dendrogram
+print(hc_w_A$ac)
+print(hc_w_B$ac)
+plot_w_A <- pltree(hc_w_A, cex = 0.6, hang = -1)
+plot_w_B <- pltree(hc_w_B, cex = 0.6, hang = -1)
+```
+
+We run the Ward's method to partition A and B, as we previously did for the original dataset. The agglomerative coefficients are very similar: 82.71% for A and 83.92% for B.
+
+# The elementary public schools case
+
+The elementary public schools would like to choose a set of cereals to include in their 
+daily cafeterias. Every day a different cereal is offered, but all cereals should support a 
+healthy diet. For this goal, you are requested to find a cluster of “healthy cereals.” 
+
+In order to find the right cluster of cereals that schools are looking for we are going to analyze the median values of the variables for each cluster. The parameters to be considered to label cereals as healthy are proteins, sodium, fiber, sugars.
+
+
+```{r}
+#identifying cereals with clusters
+cereals.clust <- cbind(clusters5, cereals.short)
+
+#comparing metrics among clusters
+median.table <- aggregate(cereals.short, list(clusters5), median)
+median.table
+```
+
+According to our selection criteria, clusters 1 and 5 seem to be the best choices for providing a healthy food solution to children. However, we select cluster 1 because of the vitamins content that allows it to stand out from cluster 5.
+Note that selecting other variables would result in a different suggestion.
+
