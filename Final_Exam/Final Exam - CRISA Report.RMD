@@ -1,0 +1,294 @@
+---
+title: "CRISA Consumer Segmentation Report"
+author: "Fabrizio Fiorini"
+date: "5/8/2021"
+output:
+  word_document: default
+  html_document: default
+---
+
+
+# Kent State University
+# Fundamentals of Machine Learning – Spring 2021
+
+
+
+# Abstract
+The objective of this assignment is to apply the appropriate machine learning technique to the business problem, and then present the solution to top-level management.
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+\newpage 
+\tableofcontents 
+\newpage 
+
+
+# Company’s profile
+CRISA is an Asian market research agency that specializes in tracking consumer purchase behavior in consumer goods (both durable and nondurable). 
+In one major research project, CRISA tracks numerous consumer product categories (e.g., “detergents”), and, within each category, perhaps dozens of brands. To track purchase behavior, CRISA constituted household panels in over 100 cities and towns in India, covering most of the Indian urban market. The households were carefully selected using stratified sampling to ensure a representative sample; a subset of 600 records is analyzed here. The strata were defined on the basis of socioeconomic status and the market (a collection of cities).
+CRISA has two categories of clients: 
+
++ advertising agencies that subscribe to the database services, obtain updated data every month, and use the data to advise their clients on advertising and promotion strategies;
+
++	consumer goods manufacturers, which monitor their market share using the CRISA database.
+
+
+# Introduction to the study
+CRISA has traditionally segmented markets on the basis of purchaser demographics. They would now like to segment the market based on two key sets of variables more directly related to the purchase process and to brand loyalty: Purchase behavior (volume, frequency, susceptibility to discounts, and brand loyalty) and Basis of purchase (price, selling proposition). Doing so would allow CRISA to gain information about what demographic attributes are associated with different purchase behaviors and degrees of brand loyalty, and thus deploy promotion budgets more effectively. More effective market segmentation would enable CRISA’s clients (in this case, a firm called IMRB) to design more cost-effective promotions targeted at appropriate segments. Thus, multiple promotions could be launched, each targeted at different market segments at different times of the year. This would result in a more cost-effective allocation of the promotion budget to different market segments. It would also enable IMRB to design more effective customer reward systems and thereby increase brand loyalty.
+In this study we are going to identify clusters of households applying the unsupervised learning algorithm K-means using different sets of variables, as stated above. Then, we are going to comment on the characteristics of these clusters such as demographic, brand loyalty, and purchase behavior. This information would be used to guide the development of advertising and promotional campaigns. Finally, we are going to develop a model that classifies data into these clusters and identifies which one should be used in targeting direct-mail promotions.
+
+
+# Data exploration
+
+```{r, comment=NA, include=FALSE, message=FALSE, echo=FALSE}
+#1.loading packages
+library(caret)
+library(tidyverse)
+library(dplyr)
+library(ISLR)
+library(factoextra)
+library(FNN)
+library(gmodels)
+```
+
+```{r, comment=NA, include=FALSE, message=FALSE, echo=FALSE}
+#2.loading dataset
+dataset <- read.csv("BathSoap.csv")
+#names(dataset) <- dataset[1,]
+#dataset <- dataset[-1,]
+```
+
+```{r}
+#3.data exploration
+dim(dataset)
+head(dataset)
+str(dataset)
+summary(dataset)
+```
+
+The dataset we are using is called BathSoap and it is provided in an Excel CSV file. It contains 600 observations and 46 variables. These variables are of different nature: Demographics, Purchase summary over the period, Purchase within promotion, Brandwise purchase, Price category, Selling proposition.
+After carried out some data exploration activity, numerous variables resulted to be classified as character due to the presence of the “%” symbol within the data points. We will take care of this later on.
+Moreover, it is important to point out that some variables that should be, according to their nature, categorical, are presented as numeric variables. For example, the variable “SEC” (socioeconomic class), “FEH” (eating habits), “SEX” (gender), “AGE”, “EDU” (education), and “CS” (television availability) are expressed with a range of number indicating the category in which the data point falls. For example, the variable “SEC” has a range that goes from 1 (high) to 5 (low), while “SEX” can be 1 for male and 2 for female.
+
+```{r, comment=NA, include=FALSE, message=FALSE, echo=FALSE}
+#4.checking for missing values
+colMeans(is.na(dataset))
+dataset %>% 
+  select(FEH, MT, SEX, EDU, HS, CS) %>% 
+  filter(FEH == 0 & EDU == 0 & HS == 0)
+```
+
+When we checked for missing values, we notice that there are not any. However, from the descriptive statistics analysis, we saw that some of the demographic variables have zero as minimum value, meaning that the dataset contains zero values that can be considered as “missing values” or “values on available”. In fact, the categorical variables have levels that start from 1.
+If we try to filter for zeros using three demographic variables (for example FEH, EDU, HS) we see that numerous observations are lacking more than one of those variables. Nonetheless, since the K-means clustering algorithm does not consider the categorical variables regarding the households’ demographic, the observations that contain zero values are still considered useful for the purpose of the study.
+The following visuals offer an easy and effective understanding of the distribution of the observations through the demographic characteristics.
+
+```{r comment=NA, echo=FALSE}
+#5.visuals
+barplot(table(dataset$SEC), main= "Socioeconomic class", col= c("turquoise"))
+barplot(table(dataset$FEH), main= "Eating Habits", col= c("turquoise"))
+barplot(table(dataset$SEX), main= "Sex", col= c("turquoise"))
+barplot(table(dataset$AGE), main= "Age Group", col= c("turquoise"))
+barplot(table(dataset$EDU), main= "Education Level", col= c("turquoise"))
+barplot(table(dataset$HS), main= "Members in Household", col= c("turquoise"))
+barplot(table(dataset$CHILD), main= "Presence of Children", col= c("turquoise"))
+barplot(table(dataset$CS), main= "Television Availability", col= c("turquoise"))
+```
+
+\newpage 
+
+# Data preparation
+
+```{r}
+#6.removing % and preparing data
+dataset.mod <- dataset
+#dataset.mod[,12:19] <- apply(dataset.mod[,12:19],2,as.numeric)
+dataset.mod[,20:46] <- data.frame(lapply(dataset.mod[,20:46], function(x) as.numeric(sub("%", "", x))))
+dataset.mod[,20:46] <- lapply(dataset.mod[,20:46], function(x) as.numeric(x)/100)
+```
+
+As we have seen, the original database form prevented us from carrying out the clustering analysis on the data because of the presence of the “%” symbol next to the value. An essential step in the process was to remove the symbol and have those values set as numeric. Moreover, we decided to show percentage values as decimal points.
+To express the Brand Loyalty of each household based on their purchase data available in the dataset, we decided to create a metric that tells the maximum value recorded for the percentage spent. A loyal household has a high percentage of spending concentrated on a type of brand, whichever it is.
+
+```{r}
+#7.creating brand loyalty metrics
+dataset.mod <- mutate(dataset.mod, Brand_Loyalty = apply(dataset.mod[,23:30],1,max))
+```
+
+Last step before applying the K-means clustering algorithm was to normalize the data, since one of the main disadvantages of it is its sensibility to variables’ scale, and to select three different sets of variables. First, we used variables that express the Purchase Behavior (see the Introduction section), then we applied the algorithm to a set of variables describing the Basis for Purchase (see the Introduction section), and finally we combined those sets of variables and run again the clustering analysis. Not all the variables of the original dataset have been utilized, limiting the analysis on the variables from 12th to 47th (the last variables is the Brand Loyalty metric we created).
+
+```{r}
+#8.normalizing and partitioning
+dataset.norm <- dataset.mod
+dataset.norm[,12:47] <- scale(dataset.mod[,12:47])
+purchasebehavior <- dataset.norm[, c(12:22,47)]
+basispurchase <- dataset.norm[, c(32:46)]
+behavior.basis <- dataset.norm[, c(12:22,32:47)]
+```
+
+\newpage 
+
+# Clustering analysis – Purchase behavior
+When applying the K-means algorithm, the user has to decide the number of clusters desired as result. In fact, the number of cluster k is an hyperparameter of the algorithm. The decision can be based on several factor (such as external considerations or domain knowledge), however an effective way to know in advance what level of k is optimal is to resort to the Elbow and the Silhouette methods.
+
+```{r comment=NA, echo=FALSE}
+#9.choosing the optimal k with elbow and silhouette methods
+set.seed(123)
+fviz_nbclust(purchasebehavior, kmeans, method = "wss")
+fviz_nbclust(purchasebehavior, kmeans, method = "silhouette")
+```
+
+According to both the charts, we decided to use four clusters for running the clustering analysis with variables describing Purchase Behavior. The result, visualized below, is clusters with size of, respectively, 167, 80, 73, 280. The output of the algorithm also shows us the centers, the within cluster sum of squares, and the series of cluster number for each observation (the first household is assigned to cluster 4, the second and third to cluster 1, the fourth to cluster 4, and so on).
+
+```{r}
+#10.running kmeans for purchase behavior
+set.seed(123)
+kmeansPB4 <- kmeans(purchasebehavior, centers = 4, nstart = 30)
+print(kmeansPB4)
+table(kmeansPB4$cluster)
+fviz_cluster(kmeansPB4, data = purchasebehavior) + labs(title = "Purchase Behavior")
+#fviz_cluster(kmeansPB, purchasebehavior, main = "Purchase Behavior Cluster Plot")
+kmeansPB4$centers
+```
+
+# Clustering analysis – Basis for purchase
+
+```{r comment=NA, echo=FALSE}
+#11.choosing the optimal k with elbow and silhouette methods
+set.seed(123)
+fviz_nbclust(basispurchase, kmeans, method = "wss")
+fviz_nbclust(basispurchase, kmeans, method = "silhouette")
+```
+
+We applied again the Elbow and the Silhouette methods, this time using the Basis for Purchase set of variables. From the Elbow chart we can see that k=2 already ensure a good performance, even if the line keeps declining steadily until k=7. The Silhouette method suggests the use of 7 clusters and we can notice that after k=3 the line starts to flatten. One of the guidelines of the client was the intention to support two to five different promotional approaches that will be based on the clustering analysis. Therefore, k=3 has been considered the best solution for our study, considering the output of the two methods.
+
+```{r}
+#12.running kmeans for basis for purchase
+set.seed(123)
+kmeansBfP3 <- kmeans(basispurchase, centers = 3, nstart = 30)
+print(kmeansBfP3)
+table(kmeansBfP3$cluster)
+fviz_cluster(kmeansBfP3, data = basispurchase) + labs(title = "Basis of Purchase")
+#fviz_cluster(kmeansBfP, basispurchase, main = "Basis of Purchase Cluster Plot")
+kmeansBfP3$centers
+```
+
+The three clusters formed have size of, respectively, 376, 79, 145. 
+
+# Clustering analysis – Combined 
+
+```{r comment=NA, echo=FALSE}
+#13.choosing the optimal k with elbow and silhouette methods
+set.seed(123)
+fviz_nbclust(behavior.basis, kmeans, method = "wss")
+fviz_nbclust(behavior.basis, kmeans, method = "silhouette")
+```
+
+Now we run the algorithm combining the two set of variables used previously. The hyperparameter has been set on 3 since Silhouette chart shows a slight decrease for k=4 compared to k=3.
+
+```{r}
+#14.running kmeans for both purchase behavior and basis for purchase
+set.seed(123)
+kmeansPB.BfP3 <- kmeans(behavior.basis, centers = 3, nstart = 30)
+print(kmeansPB.BfP3)
+table(kmeansPB.BfP3$cluster)
+fviz_cluster(kmeansPB.BfP3, data = behavior.basis) + labs(title = "Purchase Behavior + Basis of Purchase")
+#fviz_cluster(kmeansPB.BfP, behavior.basis, main = "Combined Cluster Plot")
+kmeansPB.BfP3$centers
+```
+
+The clusters’ size is 68, 219, 313.
+
+\newpage 
+
+# Selection and clusters’ profiles
+Since all of the segmentation we performed during the previous section of the study offered good results, we decided to select the combined sets of variables for completeness. In fact, an effective promotional approach is based on factors like volume, frequency, brand loyalty, as well as price and selling proposition. 
+
+```{r}
+#15.selecting the segmentation
+dataset.segm <- data.frame(dataset.mod, cluster = kmeansPB.BfP3$cluster)
+head(dataset.segm[, 43:48])
+dataset.segm %>% group_by(dataset.segm$cluster) %>% summarise_all(mean) -> dataset.clust
+```
+
+We added a Cluster variable at the right-end of the unnormalized dataset that indicates to which cluster each household belong to. Not normalized data is preferred at this point because it is more intuitive to describe the characteristics of the clusters.
+
+```{r comment=NA, echo=FALSE}
+#16.exploring clusters
+barplot(dataset.clust$SEC, main="Socioeconomic Status",
+        xlab="Cluster", col= c("turquoise"))
+barplot(dataset.clust$SEX, main="Gender",
+        xlab="Cluster", col= c("turquoise"))
+barplot(dataset.clust$EDU, main="Education Level",
+        xlab="Cluster", col= c("turquoise"))
+barplot(dataset.clust$No..of.Brands, main="Num. of Brands Purchased",
+        xlab="Cluster", col= c("turquoise"))
+barplot(dataset.clust$Brand.Runs, main="Brand Runs",
+        xlab="Cluster", col= c("turquoise"))
+barplot(dataset.clust$Vol.Tran, main="Avg. Volume per Transaction",
+        xlab="Cluster", col= c("turquoise"))
+barplot(dataset.clust$Avg..Price, main="Avg. Price",
+        xlab="Cluster", col= c("turquoise"))
+barplot(dataset.clust$Brand_Loyalty, main="Brand Loyalty",
+        xlab="Cluster", col= c("turquoise"))
+```
+
++	Cluster 1: household from this cluster come from a low socioeconomic environment, have the lowest education level, record the highest average volume per transaction and a low average price, show the lowest number of brand runs, tend to buy very few numbers of brands, and resulted as the most brand loyal.
+
++	Cluster 2: household from this cluster are quite the opposite with respect to cluster 1 since they come from a high socioeconomic environment, have the highest education level, record the lowest average volume per transaction and a high average price (expensive items), show the highest number of brand runs, tend to buy the highest number of brands, and resulted as the least brand loyal.
+
++	Cluster 3: household from this cluster are balanced, compared to the first two clusters, but is characterized by being a female majority, have a high level of education, and show a high number of brands purchased.
+
+\newpage 
+
+# Predictive model 
+In this section, we report the results of a predicted model we developed to help classifying the data into the three clusters. The model output will be used in the future to target direct-mail promotions.  We decided to use a KNN classification model to determine how well the model classify customers and determine the success rate of the promotion. 
+First, we selected a subset of the non-normalized dataset that contains the new column showing the number of cluster.
+Then, we created a new column that considers all the household in cluster 1, characterized by the highest level of Brand Loyalty, as successful (1) while all the others are considered non successful (0). 
+Finally, we normalized all the data except for the last 3 variables: Brand Loyalty, Cluster, Success.
+
+```{r}
+#17.splitting data for the predictive model
+set.seed(1234)
+dataset.knn <- select(dataset.segm, 12:22, 32:48)
+dataset.knn$Success = ifelse(dataset.knn$cluster == 1,1,0)
+norm_set <- preProcess(dataset.knn[,1:27], method=c("center", "scale"))
+dataset.knn[,1:27] <- predict(norm_set, dataset.knn[,1:27])
+Index = createDataPartition(dataset.knn$Brand_Loyalty, p=0.60, list=FALSE)
+train.df = dataset.knn[Index, ]
+valid.df = dataset.knn[-Index, ]
+```
+
+We needed to prepare the data for the KNN model, identifying the both the lables for the training set and the validation set.
+Moreover, we tried different values of k in order to find the optimal level, that is at k=15 (highest level of accuracy).
+
+```{r}
+#18.preparing data for knn algorithm and testing the optimal k
+train_predictors <- train.df[ ,1:28] 
+valid_predictors <- valid.df[ ,1:28]
+train_labels <- train.df[ ,29] 
+valid_labels <- valid.df[ ,29] 
+set.seed(1234)
+Search_grid <- expand.grid(k=c(1:15))
+model <- train(factor(Success)~ . , 
+                 data = dataset.knn, method="knn",
+                 tuneGrid=Search_grid)
+model
+```
+
+Finally, we were ready to run the algorithm for k=15. The model successfully identified 23 households.
+The following Confusion Matrix is helpful to visualize the model's result and measure some performance metrics such as Accuracy, Recall, Precision, and Specificity.
+
+```{r}
+#19.running the model with k=15 and creating confusion matrix
+set.seed(1234)
+knn15 <- knn(train_predictors, 
+              valid_predictors, 
+              cl=train_labels, 
+              k=15 )
+head(knn15)
+summary(knn15)
+c.matrix <- CrossTable(x=valid_labels,y=knn15, prop.chisq = FALSE)
+```
